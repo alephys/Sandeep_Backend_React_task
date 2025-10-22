@@ -13,7 +13,10 @@ from confluent_kafka.admin import AdminClient, NewTopic
 
 from .models import Topic, TopicRequest
 
-KAFKA_BOOTSTRAP = "10.1.14.150:9092"
+KAFKA_BOOTSTRAP = [
+    'sandeep.infra.alephys.com:12091',
+    'sandeep.infra.alephys.com:12092'
+]
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +249,7 @@ def home(request):
     context["created_topics"] = Topic.objects.filter(is_active=True, created_by=request.user)
 
     return render(request, "home.html", context)
-
+        
 @csrf_exempt
 def admin_dashboard_api(request):
 
@@ -298,9 +301,19 @@ def admin_dashboard_api(request):
                 return JsonResponse({"success": False, "message": f"Topic '{topic_name}' already exists."}, status=400)
 
             # Create topic in Kafka using confluent_kafka
-            admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+            admin_client = AdminClient({
+                'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+            })
             new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
-            admin_client.create_topics([new_topic])
+            # admin_client.create_topics([new_topic])
+            fs = admin_client.create_topics([new_topic])
+            for topic, f in fs.items():
+                try:
+                    f.result()  # This will raise an exception if creation fails
+                    logger.info(f"Topic '{topic}' created successfully in Kafka.")
+                except Exception as e:
+                    logger.error(f"Failed to create topic '{topic}': {e}")
+                    return JsonResponse({"success": False, "message": f"Kafka error: {e}"}, status=500)
 
             # Store topic in Django model
             Topic.objects.create(
@@ -343,7 +356,9 @@ def  admin_dashboard(request):
                     context["error"] = f"Topic '{topic_name}' already exists."
                 else:
                     try:
-                        admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+                        admin_client = AdminClient({
+                            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+                        })
                         new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
                         admin_client.create_topics([new_topic])
                         logger.info(f"Admin created Kafka topic '{topic_name}' with {partitions} partitions")
@@ -389,9 +404,19 @@ def create_topic_api(request, request_id):
 
     try:
         # Create topic in Kafka
-        admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+        # admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+        admin_client = AdminClient({
+            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+        })
         new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
-        admin_client.create_topics([new_topic])
+        # admin_client.create_topics([new_topic])
+        try:
+            fs = admin_client.create_topics([new_topic])
+            for topic, f in fs.items():
+                f.result()  # Raises exception if failed
+        except Exception as e:
+            logger.error(f"Kafka error for user {user.username}: {e}")
+            return JsonResponse({"success": False, "message": f"Kafka error: {e}"}, status=500)
 
         # Save to DB
         Topic.objects.create(
@@ -488,7 +513,10 @@ def create_topic(request):
                     messages.warning(request, f"Topic '{topic_name}' already exists. Request marked as processed.")
                     return redirect("home")
                 try:
-                    admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+                    # admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+                    admin_client = AdminClient({
+                        'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+                    })
                     new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
                     admin_client.create_topics([new_topic])
                     logger.info(f"Kafka topic '{topic_name}' created with {partitions} partitions")
@@ -540,8 +568,10 @@ def delete_topic_api(request, topic_id):
     if request.method == "DELETE":
         try:
             topic = Topic.objects.get(id=topic_id)
-            admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
-            
+            # admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+            admin_client = AdminClient({
+                'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+            })
             # Try deleting from Kafka first
             try:
                 admin_client.delete_topics([topic.name])
@@ -569,7 +599,10 @@ def delete_topic(request):
                 "topics": Topic.objects.filter(created_by=request.user, is_active=True)
             })
         try:
-            admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+            admin_client = AdminClient({
+                'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+            })
+            # admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
             for topic_id in topic_ids:
                 topic = Topic.objects.get(id=topic_id, created_by=request.user, is_active=True)
                 try:

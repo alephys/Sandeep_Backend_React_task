@@ -9,7 +9,8 @@ from django.utils import timezone
 from .models import LogEntry, LoginEntry, Topic, TopicRequest
 import logging
 import re
-from confluent_kafka.admin import AdminClient, NewTopic
+from django.conf import settings
+from confluent_kafka.admin import AdminClient, NewTopic, NewPartitions
 
 from .models import Topic, TopicRequest
 
@@ -564,29 +565,138 @@ def create_topic(request):
     return redirect("home")
 
 @csrf_exempt
-def delete_topic_api(request, topic_id):
-    if request.method == "DELETE":
-        try:
-            topic = Topic.objects.get(id=topic_id)
-            # admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
-            admin_client = AdminClient({
-                'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+def alter_topic_partitions(request, topic_id):
+    if request.method != "PATCH":
+        return JsonResponse({"success": False, "message": "Invalid request method. Use PATCH."})
+
+    try:
+        topic = Topic.objects.get(id=topic_id)
+        data = json.loads(request.body.decode("utf-8"))
+        new_partition_count = data.get("new_partition_count")
+
+        if not new_partition_count or not isinstance(new_partition_count, int):
+            return JsonResponse({"success": False, "message": "Provide a valid integer for new_partition_count."})
+
+        # Connect to Kafka
+        admin_client = AdminClient({
+            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+        })
+
+        # Get current partitions from Kafka
+        metadata = admin_client.list_topics(timeout=10)
+        current_partitions = len(metadata.topics[topic.name].partitions)
+
+        logger.info(f"Current partitions for '{topic.name}': {current_partitions}")
+
+        if new_partition_count <= current_partitions:
+            return JsonResponse({
+                "success": False,
+                "message": f"Cannot reduce partitions. Current: {current_partitions}, Requested: {new_partition_count}"
             })
-            # Try deleting from Kafka first
+
+        # Increase partitions
+        # new_parts = {topic.name: NewPartitions(total_count=new_partition_count)}
+        # new_parts = {
+        #     topic.name: NewPartitions(topic.name, new_partition_count)
+        # }   
+        # fs = admin_client.create_partitions(new_parts)
+
+        # for t, f in fs.items():
+        #     try:
+        #         f.result()  # Wait for operation completion
+        #         logger.info(f"Topic '{t}' partition count increased to {new_partition_count}.")
+        #     except Exception as e:
+        #         logger.error(f"Failed to alter partitions for {t}: {e}")
+        #         return JsonResponse({"success": False, "message": f"Kafka alter failed: {str(e)}"})
+
+        new_parts = [
+             NewPartitions(topic=topic.name, new_total_count=new_partition_count)
+        ]
+        fs = admin_client.create_partitions(new_parts)
+
+        for t, f in fs.items():
             try:
-                admin_client.delete_topics([topic.name])
-                logger.info(f"Kafka topic '{topic.name}' deleted by {request.user.username}")
+                f.result()  # Wait for operation completion
+                logger.info(f"Topic '{t}' partition count increased to {new_partition_count}.")
+            except Exception as e:
+                logger.error(f"Failed to alter partitions for {t}: {e}")
+                return JsonResponse({"success": False, "message": f"Kafka alter failed: {str(e)}"})
+
+        # Update in database
+        topic.partitions = new_partition_count
+        topic.save()
+
+        return JsonResponse({
+            "success": True,
+            "message": f"Partitions for topic '{topic.name}' increased from {current_partitions} → {new_partition_count}"
+        })
+
+    except Topic.DoesNotExist:
+        return JsonResponse({"success": False, "message": "Topic not found."})
+    except Exception as e:
+        import traceback
+        logger.error(traceback.format_exc())
+        return JsonResponse({"success": False, "message": str(e)})
+
+@csrf_exempt
+def delete_topic_api(request, topic_id):
+    if request.method != "DELETE":
+        return JsonResponse({"success": False, "message": "Invalid request method."})
+
+    try:
+        topic = Topic.objects.get(id=topic_id)
+        logger.info(f"Received DELETE request for topic: {topic.name}")
+
+        admin_client = AdminClient({
+            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+        })
+
+        # Delete topic in Kafka
+        fs = admin_client.delete_topics([topic.name], operation_timeout=30)
+        for topic_name, f in fs.items():
+            try:
+                f.result()  # Wait for operation to complete
+                logger.info(f"Kafka topic '{topic_name}' deleted successfully.")
             except Exception as e:
                 logger.error(f"Kafka topic deletion failed: {e}")
                 return JsonResponse({"success": False, "message": f"Kafka deletion failed: {str(e)}"})
+
+        # Delete from DB
+        topic.delete()
+        logger.info(f"Topic '{topic.name}' deleted successfully from Django DB.")
+        return JsonResponse({"success": True, "message": f"Topic '{topic.name}' deleted successfully!"})
+
+    except Topic.DoesNotExist:
+        return JsonResponse({"success": False, "message": "Topic not found."})
+    except Exception as e:
+        logger.error(f"Error deleting topic: {e}")
+        return JsonResponse({"success": False, "message": str(e)})
+
+
+# @csrf_exempt
+# def delete_topic_api(request, topic_id):
+#     if request.method == "DELETE":
+#         try:
+#             topic = Topic.objects.get(id=topic_id)
+#             # admin_client = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+#             admin_client = AdminClient({
+#                 'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+#             })
+#             # Try deleting from Kafka first
+#             try:
+#                 admin_client.delete_topics([topic.name])
+#                 logger.info(f"Kafka topic '{topic.name}' deleted by {request.user.username}")
+#             except Exception as e:
+#                 logger.error(f"Kafka topic deletion failed: {e}")
+#                 return JsonResponse({"success": False, "message": f"Kafka deletion failed: {str(e)}"})
             
-            topic.delete()
-            logger.info(f"Topic '{topic.name}' deleted successfully from Django DB.")
-            return JsonResponse({"success": True, "message": f"Topic '{topic.name}' deleted successfully!"})
-        except Topic.DoesNotExist:
-            return JsonResponse({"success": False, "message": "Topic not found."})
+#             topic.delete()
+#             logger.info(f"Topic '{topic.name}' deleted successfully from Django DB.")
+#             return JsonResponse({"success": True, "message": f"Topic '{topic.name}' deleted successfully!"})
+#         except Topic.DoesNotExist:
+#             return JsonResponse({"success": False, "message": "Topic not found."})
     
-    return JsonResponse({"success": False, "message": "Invalid request method."})
+#     return JsonResponse({"success": False, "message": "Invalid request method."})
 
 @csrf_exempt
 def delete_topic(request):
@@ -670,79 +780,79 @@ def topic_detail_api(request, topic_name):
     except Topic.DoesNotExist:
         return JsonResponse({"success": False, "message": "Topic not found"}, status=404)
 
-@login_required
-def create_partition(request, topic_name):
-    if not request.user.is_authenticated:
-        return redirect("login")
-    if request.method == "POST":
-        partitions_to_delete = request.POST.get("partitions")
-        if partitions_to_delete:
-            try:
-                partitions_to_delete = int(partitions_to_delete)
-                if partitions_to_delete < 1:
-                    return render(request, "topic_detail.html", {
-                        "topic": Topic.objects.get(name=topic_name, is_active=True, created_by=request.user),
-                        "username": request.user.username,
-                        "topics": Topic.objects.filter(created_by=request.user, is_active=True),
-                        "error": "Partitions must be at least 1."
-                    })
-                topic = Topic.objects.get(name=topic_name, is_active=True, created_by=request.user)
-                if partitions_to_delete >= topic.partitions:
-                    return render(request, "topic_detail.html", {
-                        "topic": topic,
-                        "username": request.user.username,
-                        "topics": Topic.objects.filter(created_by=request.user, is_active=True),
-                        "error": "Cannot delete more partitions than exist."
-                    })
-                if topic.created_by != request.user and not request.user.is_superuser:
-                    return render(request, "topic_detail.html", {
-                        "topic": topic,
-                        "username": request.user.username,
-                        "topics": Topic.objects.filter(created_by=request.user, is_active=True),
-                        "error": "You can only delete partitions from topics you created."
-                    })
-                success, message = execute_confluent_command("delete_partition", topic_name, partitions_to_delete)
-                if success:
-                    topic.partitions -= partitions_to_delete
-                    if topic.partitions <= 0:
-                        topic.delete()  # Permanently delete topic if no partitions remain
-                        logger.info(f"Topic '{topic_name}' permanently deleted due to no partitions by {request.user.username}")
-                    else:
-                        topic.save()
-                        LogEntry.objects.create(
-                            command=f"delete_partition_{topic_name}",
-                            approved=True,
-                            message=f"Permanently deleted {partitions_to_delete} partitions from {topic_name} by {request.user.username}"
-                        )
-                        logger.info(f"Permanently deleted {partitions_to_delete} partitions from {topic_name} by {request.user.username}")
-                    return redirect("home" if not request.user.is_superuser else "admin_dashboard")
-                else:
-                    return render(request, "topic_detail.html", {
-                        "topic": topic,
-                        "username": request.user.username,
-                        "topics": Topic.objects.filter(created_by=request.user, is_active=True),
-                        "error": message
-                    })
-            except ValueError:
-                return render(request, "topic_detail.html", {
-                    "topic": Topic.objects.get(name=topic_name, is_active=True, created_by=request.user),
-                    "username": request.user.username,
-                    "topics": Topic.objects.filter(created_by=request.user, is_active=True),
-                    "error": "Invalid number of partitions."
-                })
-            except Topic.DoesNotExist:
-                return render(request, "topic_detail.html", {
-                    "topics": Topic.objects.filter(is_active=True, created_by=request.user),
-                    "username": request.user.username,
-                    "error": f"Topic {topic_name} does not exist or you don't have permission."
-                })
-        return render(request, "topic_detail.html", {
-            "topic": Topic.objects.get(name=topic_name, is_active=True, created_by=request.user),
-            "username": request.user.username,
-            "topics": Topic.objects.filter(created_by=request.user, is_active=True),
-            "error": "Please specify the number of partitions."
-        })
-    return redirect("home" if not request.user.is_superuser else "admin_dashboard")
+# @login_required
+# def create_partition(request, topic_name):
+#     if not request.user.is_authenticated:
+#         return redirect("login")
+#     if request.method == "POST":
+#         partitions_to_delete = request.POST.get("partitions")
+#         if partitions_to_delete:
+#             try:
+#                 partitions_to_delete = int(partitions_to_delete)
+#                 if partitions_to_delete < 1:
+#                     return render(request, "topic_detail.html", {
+#                         "topic": Topic.objects.get(name=topic_name, is_active=True, created_by=request.user),
+#                         "username": request.user.username,
+#                         "topics": Topic.objects.filter(created_by=request.user, is_active=True),
+#                         "error": "Partitions must be at least 1."
+#                     })
+#                 topic = Topic.objects.get(name=topic_name, is_active=True, created_by=request.user)
+#                 if partitions_to_delete >= topic.partitions:
+#                     return render(request, "topic_detail.html", {
+#                         "topic": topic,
+#                         "username": request.user.username,
+#                         "topics": Topic.objects.filter(created_by=request.user, is_active=True),
+#                         "error": "Cannot delete more partitions than exist."
+#                     })
+#                 if topic.created_by != request.user and not request.user.is_superuser:
+#                     return render(request, "topic_detail.html", {
+#                         "topic": topic,
+#                         "username": request.user.username,
+#                         "topics": Topic.objects.filter(created_by=request.user, is_active=True),
+#                         "error": "You can only delete partitions from topics you created."
+#                     })
+#                 success, message = execute_confluent_command("delete_partition", topic_name, partitions_to_delete)
+#                 if success:
+#                     topic.partitions -= partitions_to_delete
+#                     if topic.partitions <= 0:
+#                         topic.delete()  # Permanently delete topic if no partitions remain
+#                         logger.info(f"Topic '{topic_name}' permanently deleted due to no partitions by {request.user.username}")
+#                     else:
+#                         topic.save()
+#                         LogEntry.objects.create(
+#                             command=f"delete_partition_{topic_name}",
+#                             approved=True,
+#                             message=f"Permanently deleted {partitions_to_delete} partitions from {topic_name} by {request.user.username}"
+#                         )
+#                         logger.info(f"Permanently deleted {partitions_to_delete} partitions from {topic_name} by {request.user.username}")
+#                     return redirect("home" if not request.user.is_superuser else "admin_dashboard")
+#                 else:
+#                     return render(request, "topic_detail.html", {
+#                         "topic": topic,
+#                         "username": request.user.username,
+#                         "topics": Topic.objects.filter(created_by=request.user, is_active=True),
+#                         "error": message
+#                     })
+#             except ValueError:
+#                 return render(request, "topic_detail.html", {
+#                     "topic": Topic.objects.get(name=topic_name, is_active=True, created_by=request.user),
+#                     "username": request.user.username,
+#                     "topics": Topic.objects.filter(created_by=request.user, is_active=True),
+#                     "error": "Invalid number of partitions."
+#                 })
+#             except Topic.DoesNotExist:
+#                 return render(request, "topic_detail.html", {
+#                     "topics": Topic.objects.filter(is_active=True, created_by=request.user),
+#                     "username": request.user.username,
+#                     "error": f"Topic {topic_name} does not exist or you don't have permission."
+#                 })
+#         return render(request, "topic_detail.html", {
+#             "topic": Topic.objects.get(name=topic_name, is_active=True, created_by=request.user),
+#             "username": request.user.username,
+#             "topics": Topic.objects.filter(created_by=request.user, is_active=True),
+#             "error": "Please specify the number of partitions."
+#         })
+#     return redirect("home" if not request.user.is_superuser else "admin_dashboard")
 
 @login_required
 def delete_partition(request, topic_name):

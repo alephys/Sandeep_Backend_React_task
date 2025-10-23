@@ -10,6 +10,7 @@ urlpatterns = [
     path('delete_topic/<int:topic_id>/', views.delete_topic_api, name='delete_topic_api'),
     path('topic/<str:topic_name>/', views.topic_detail_api, name='topic_detail_api'),
     path('create_topic_api/<int:request_id>/', views.create_topic_api, name='create_topic_api'),
+    path('alter_topic_api/<int:topic_id>/', views.alter_topic_partitions, name='alter_topic_api'),
 
     path('admin/', admin.site.urls),
     path('', views.login_view, name='root'),
@@ -20,7 +21,7 @@ urlpatterns = [
     path('home/<str:topic_name>/', views.topic_detail, name='topic_detail'),
     path('create_topic/', views.create_topic, name='create_topic'),
     path('create_topic/<int:request_id>/', views.create_topic_form, name='create_topic_form'),
-    path('create_partition/<str:topic_name>/', views.create_partition, name='create_partition'),
+    # path('create_partition/<str:topic_name>/', views.create_partition, name='create_partition'),
     path('delete_partition/<str:topic_name>/', views.delete_partition, name='delete_partition'),
     path('approve_request/<int:request_id>/', views.approve_request, name='approve_request'),
     path('decline_request/<int:request_id>/', views.decline_request, name='decline_request'),

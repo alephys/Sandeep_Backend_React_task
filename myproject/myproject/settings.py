@@ -7,6 +7,9 @@ from pathlib import Path
 import ldap
 from django_auth_ldap.config import LDAPSearch, GroupOfNamesType
 import logging
+from dotenv import load_dotenv
+load_dotenv()  # 👈 this reads values from your .env file
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -76,25 +79,50 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'myproject.wsgi.application'
 
-# LDAP Configuration
-AUTH_LDAP_SERVER_URI = "ldap://127.0.0.1:389"
-AUTH_LDAP_BIND_DN = "cn=admin,dc=confluentdemo,dc=io"
-AUTH_LDAP_BIND_PASSWORD = "admin"
-AUTH_LDAP_USER_SEARCH = LDAPSearch("ou=users,dc=confluentdemo,dc=io", ldap.SCOPE_SUBTREE, "(uid=%(user)s)")
-AUTH_LDAP_GROUP_SEARCH = LDAPSearch("ou=groups,dc=confluentdemo,dc=io", ldap.SCOPE_SUBTREE, "(objectClass=posixGroup)")
+# # LDAP Configuration
+# AUTH_LDAP_SERVER_URI = "ldap://127.0.0.1:389"
+# AUTH_LDAP_BIND_DN = "cn=admin,dc=confluentdemo,dc=io"
+# AUTH_LDAP_BIND_PASSWORD = "admin"
+# AUTH_LDAP_USER_SEARCH = LDAPSearch("ou=users,dc=confluentdemo,dc=io", ldap.SCOPE_SUBTREE, "(uid=%(user)s)")
+# AUTH_LDAP_GROUP_SEARCH = LDAPSearch("ou=groups,dc=confluentdemo,dc=io", ldap.SCOPE_SUBTREE, "(objectClass=posixGroup)")
+# AUTH_LDAP_GROUP_TYPE = GroupOfNamesType()
+# AUTH_LDAP_USER_ATTR_MAP = {
+#     "first_name": "givenName",
+#     "last_name": "sn",
+#     "email": "mail",
+# }
+# AUTH_LDAP_USER_FLAGS_BY_GROUP = {
+#     "is_superuser": "cn=superusers,ou=groups,dc=confluentdemo,dc=io",  # Map LDAP group to superuser
+#     "is_staff": "cn=superusers,ou=groups,dc=confluentdemo,dc=io",      # Allow admin access
+# }
+
+AUTH_LDAP_SERVER_URI = os.getenv("LDAP_SERVER_URL")
+AUTH_LDAP_BIND_DN = os.getenv("BIND_DN")
+AUTH_LDAP_BIND_PASSWORD = os.getenv("BIND_PASSWORD")
+
+AUTH_LDAP_USER_SEARCH = LDAPSearch(
+    os.getenv("USER_BASE"),
+    ldap.SCOPE_SUBTREE,
+    f"({os.getenv('USER_NAME_ATTRIBUTE')}=%(user)s)"
+)
+
+AUTH_LDAP_GROUP_SEARCH = LDAPSearch(
+    os.getenv("GROUP_BASE"),
+    ldap.SCOPE_SUBTREE,
+    f"({os.getenv('GROUP_NAME_ATTRIBUTE')}=%(user)s)"
+)
+
 AUTH_LDAP_GROUP_TYPE = GroupOfNamesType()
-AUTH_LDAP_USER_ATTR_MAP = {
-    "first_name": "givenName",
-    "last_name": "sn",
-    "email": "mail",
-}
+
 AUTH_LDAP_USER_FLAGS_BY_GROUP = {
-    "is_superuser": "cn=superusers,ou=groups,dc=confluentdemo,dc=io",  # Map LDAP group to superuser
-    "is_staff": "cn=superusers,ou=groups,dc=confluentdemo,dc=io",      # Allow admin access
+    "is_superuser": f"cn=superusers,{os.getenv('GROUP_BASE')}",
+    "is_staff": f"cn=superusers,{os.getenv('GROUP_BASE')}",
 }
+
 AUTHENTICATION_BACKENDS = (
-    "django_auth_ldap.backend.LDAPBackend",
+    'myproject.auth_backends.LDAPBackend',
     "django.contrib.auth.backends.ModelBackend",  # Fallback for local superusers
+    # "django_auth_ldap.backend.LDAPBackend",
 )
 
 DATABASES = {

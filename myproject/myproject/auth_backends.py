@@ -4,12 +4,14 @@ from django.contrib.auth.models import User
 
 class LDAPBackend:
     def authenticate(self, request, username=None, password=None):
-        server = Server("ldap://10.1.14.150:389", get_info=ALL)
+        # server = Server("ldap://10.1.14.150:389", get_info=ALL)
+        server = Server("ldap://10.1.14.140:389", get_info=ALL)
 
         try:
             conn = Connection(
                 server,
-                f"uid={username},dc=example,dc=com",
+                # f"uid={username},dc=example,dc=com",
+                f"uid={username},cn=users,cn=accounts,dc=alephys,dc=com",
                 password,
                 auto_bind=True
             )

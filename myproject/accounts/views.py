@@ -14,18 +14,18 @@ from confluent_kafka.admin import AdminClient, NewTopic, NewPartitions
 
 from .models import Topic, TopicRequest
 
-# KAFKA_BOOTSTRAP = [
-#     'navyanode3.infra.alephys.com:9094',
-#     # 'sandeep.infra.alephys.com:12091',
-#     # 'sandeep.infra.alephys.com:12092',
-# ]
+KAFKA_BOOTSTRAP = [
+    'sandeep.infra.alephys.com:12091',
+    'sandeep.infra.alephys.com:12092',
+    # 'navyanode3.infra.alephys.com:9094',
+]
 
-conf = {
-    'bootstrap.servers': 'navyanode3.infra.alephys.com:9094',
-    'security.protocol': 'SSL',
-    'ssl.ca.location': r'C:\Users\91913\Desktop\AlephysReact\backend\ca-cert.pem',
-    'ssl.endpoint.identification.algorithm': 'none',
-}
+# conf = {
+#     'bootstrap.servers': 'navyanode3.infra.alephys.com:9094',
+#     'security.protocol': 'SSL',
+#     'ssl.ca.location': r'C:\Users\91913\Desktop\AlephysReact\backend\ca-cert.pem',
+#     'ssl.endpoint.identification.algorithm': 'none',
+# }
 
 logger = logging.getLogger(__name__)
 
@@ -258,36 +258,25 @@ def home(request):
     context["created_topics"] = Topic.objects.filter(is_active=True, created_by=request.user)
 
     return render(request, "home.html", context)
-        
+
+
 @csrf_exempt
 def admin_dashboard_api(request):
-
-    # Handle GET requests
     if request.method == "GET":
         print("admin_dashboard_api called by:", request.user)
-        if "api" in request.path:
-            data = {
-                "pending_requests": list(
-                    TopicRequest.objects.filter(status="PENDING")
-                    .order_by("-requested_at")
-                    .values("id", "topic_name", "partitions", "requested_by__username")
-                ),
-                "created_topics": list(
-                    Topic.objects.filter(is_active=True)
-                    .values("id", "name", "partitions", "created_by__username")
-                ),
-                "username": request.user.username,
-            }
-            # Return JSON for frontend API
-            return JsonResponse(data, safe=False)
-
-        context = {
-            "topics": Topic.objects.filter(is_active=True),
-            "pending_requests": TopicRequest.objects.filter(status="PENDING").order_by("-requested_at"),
-            "created_topics": Topic.objects.filter(is_active=True),
+        data = {
+            "pending_requests": list(
+                TopicRequest.objects.filter(status="PENDING")
+                .order_by("-requested_at")
+                .values("id", "topic_name", "partitions", "requested_by__username")
+            ),
+            "created_topics": list(
+                Topic.objects.filter(is_active=True)
+                .values("id", "name", "partitions", "created_by__username")
+            ),
+            "username": getattr(request.user, "username", "admin"),
         }
-        # Render the admin.html template
-        return render(request, "admin.html", context)
+        return JsonResponse(data)
 
     elif request.method == "POST":
         try:
@@ -305,19 +294,14 @@ def admin_dashboard_api(request):
             if Topic.objects.filter(name=topic_name, is_active=True).exists():
                 return JsonResponse({"success": False, "message": f"Topic '{topic_name}' already exists."}, status=400)
 
-            # Create topic in Kafka
-            # admin_client = AdminClient({'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)})
-            admin_client = AdminClient(conf);
+            # Kafka topic creation
+            admin_client = AdminClient({'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)})
             new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
             fs = admin_client.create_topics([new_topic])
+            for _, f in fs.items():
+                f.result()
 
-            for topic, f in fs.items():
-                try:
-                    f.result()
-                except Exception as e:
-                    return JsonResponse({"success": False, "message": f"Kafka error: {e}"}, status=500)
-
-            # Store in DB
+            # Save to DB
             Topic.objects.create(
                 name=topic_name,
                 partitions=partitions,
@@ -326,10 +310,10 @@ def admin_dashboard_api(request):
                 consumption="Active",
                 followers=1,
                 observers=0,
-                last_produced=timezone.now()
+                last_produced=timezone.now(),
             )
 
-            # ✅ Return updated dashboard data directly
+            # ✅ Return updated dashboard data
             updated_data = {
                 "success": True,
                 "message": f"Topic '{topic_name}' created successfully!",
@@ -341,13 +325,15 @@ def admin_dashboard_api(request):
                 "created_topics": list(
                     Topic.objects.filter(is_active=True)
                     .values("id", "name", "partitions", "created_by__username")
-                )
+                ),
             }
 
-            return JsonResponse(updated_data, safe=False)
+            return JsonResponse(updated_data)
+
         except Exception as e:
             logger.error(f"Error creating topic: {e}")
             return JsonResponse({"success": False, "message": str(e)}, status=500)
+
 
 @login_required
 def  admin_dashboard(request):
@@ -371,10 +357,10 @@ def  admin_dashboard(request):
                     context["error"] = f"Topic '{topic_name}' already exists."
                 else:
                     try:
-                        # admin_client = AdminClient({
-                        #     'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
-                        # })
-                        admin_client = AdminClient(conf);
+                        admin_client = AdminClient({
+                            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+                        })
+                        # admin_client = AdminClient(conf);
                         new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
                         admin_client.create_topics([new_topic])
                         logger.info(f"Admin created Kafka topic '{topic_name}' with {partitions} partitions")
@@ -432,9 +418,9 @@ def create_topic_api(request, request_id):
         topic_name = topic_request.topic_name
         partitions = topic_request.partitions
 
-        # ✅ Create Kafka topic
-        # admin_client = AdminClient({'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)})
-        admin_client = AdminClient(conf);
+        #  Create Kafka topic
+        admin_client = AdminClient({'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)})
+        # admin_client = AdminClient(conf);
 
         new_topic = NewTopic(
             topic=topic_name,
@@ -454,7 +440,7 @@ def create_topic_api(request, request_id):
                 status=500
             )
 
-        # ✅ Save to DB
+        # Save to DB
         Topic.objects.create(
             name=topic_name,
             partitions=partitions,
@@ -466,7 +452,7 @@ def create_topic_api(request, request_id):
             last_produced=timezone.now()
         )
 
-        # ✅ Update request status
+        # Update request status
         topic_request.status = 'PROCESSED'
         topic_request.save()
 
@@ -560,10 +546,10 @@ def create_topic(request):
                     messages.warning(request, f"Topic '{topic_name}' already exists. Request marked as processed.")
                     return redirect("home")
                 try:
-                    # admin_client = AdminClient({
-                    #     'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
-                    # })
-                    admin_client = AdminClient(conf);
+                    admin_client = AdminClient({
+                        'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+                    })
+                    # admin_client = AdminClient(conf);
                     new_topic = NewTopic(topic_name, num_partitions=partitions, replication_factor=1)
                     admin_client.create_topics([new_topic])
                     logger.info(f"Kafka topic '{topic_name}' created with {partitions} partitions")
@@ -624,10 +610,10 @@ def alter_topic_partitions(request, topic_id):
             return JsonResponse({"success": False, "message": "Provide a valid integer for new_partition_count."})
 
         # Connect to Kafka
-        # admin_client = AdminClient({
-        #     'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
-        # })
-        admin_client = AdminClient(conf);
+        admin_client = AdminClient({
+            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+        })
+        # admin_client = AdminClient(conf);
         # Get current partitions from Kafka
         metadata = admin_client.list_topics(timeout=10)
         current_partitions = len(metadata.topics[topic.name].partitions)
@@ -678,10 +664,10 @@ def delete_topic_api(request, topic_id):
         topic = Topic.objects.get(id=topic_id)
         logger.info(f"Received DELETE request for topic: {topic.name}")
 
-        # admin_client = AdminClient({
-        #     'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
-        # })
-        admin_client = AdminClient(conf);
+        admin_client = AdminClient({
+            'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+        })
+        # admin_client = AdminClient(conf);
         # Delete topic in Kafka
         fs = admin_client.delete_topics([topic.name], operation_timeout=30)
         for topic_name, f in fs.items():
@@ -714,10 +700,10 @@ def delete_topic(request):
                 "topics": Topic.objects.filter(created_by=request.user, is_active=True)
             })
         try:
-            # admin_client = AdminClient({
-            #     'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
-            # })
-            admin_client = AdminClient(conf)
+            admin_client = AdminClient({
+                'bootstrap.servers': ','.join(KAFKA_BOOTSTRAP)
+            })
+            # admin_client = AdminClient(conf)
             for topic_id in topic_ids:
                 topic = Topic.objects.get(id=topic_id, created_by=request.user, is_active=True)
                 try:

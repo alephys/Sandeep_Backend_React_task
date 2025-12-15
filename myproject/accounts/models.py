@@ -40,9 +40,16 @@ class TopicRequest(models.Model):
         ('APPROVED', 'Approved'),
         ('DECLINED', 'Declined'),
     ]
+
+    REQUEST_TYPE_CHOICES = [
+        ('CREATE', 'Create Topic'),
+        ('DELETE', 'Delete Topic'),
+    ]
+    
     topic_name = models.CharField(max_length=255)
     partitions = models.PositiveIntegerField(default=3)
     requested_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    request_type = models.CharField(max_length=20, choices=REQUEST_TYPE_CHOICES, default='CREATE')  
     requested_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_requests')
@@ -51,3 +58,33 @@ class TopicRequest(models.Model):
 
     def __str__(self):
         return f"{self.topic_name} - {self.status}"
+    
+
+class AclEntry(models.Model):
+    PERMISSION_CHOICES = [
+        ('READ', 'Read'),
+        ('WRITE', 'Write'),
+        ('DESCRIBE', 'Describe'),
+        ('CREATE', 'Create'),
+        ('DELETE', 'Delete'),
+        ('ALL', 'All'),
+        ('READ_WRITE', 'Read/Write'),
+    ]
+    RESOURCE_TYPE_CHOICES = [
+        ('TOPIC', 'Topic'),
+        ('GROUP', 'Group'),
+        ('CLUSTER', 'Cluster'),
+    ]
+
+    resource_type = models.CharField(max_length=20, choices=RESOURCE_TYPE_CHOICES)
+    resource_name = models.CharField(max_length=255, blank=True)  # blank for cluster-level ACLs
+    principal = models.CharField(max_length=512)  # e.g. User:uid=kundana,... or simple User:kundana
+    permission = models.CharField(max_length=20, choices=PERMISSION_CHOICES)
+    granted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='granted_acls')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.principal} | {self.resource_type}:{self.resource_name or '*'} | {self.permission}"

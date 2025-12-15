@@ -10,7 +10,14 @@ urlpatterns = [
     path('delete_topic/<int:topic_id>/', views.delete_topic_api, name='delete_topic_api'),
     path('topic/<str:topic_name>/', views.topic_detail_api, name='topic_detail_api'),
     path('create_topic_api/<int:request_id>/', views.create_topic_api, name='create_topic_api'),
-    path('alter_topic_api/<int:topic_id>/', views.alter_topic_partitions, name='alter_topic_api'),
+    path('alter_topic_api/<str:topic_name>/', views.alter_topic_partitions, name='alter_topic_api'),
+    path('topics/', views.approved_topics_api, name='approved_topics_api'),
+    path("history_api/", views.history_api, name="history_api"),
+    path('acls/', views.list_acls_api, name='acl_list_view'),
+    path('acls/create/', views.create_acl_api, name='acl_create_view'),
+    path('ldap-users/', views.list_ldap_users_api, name='ldap_users_view'),
+    path("admin_stats/", views.admin_stats_api, name="admin_stats_api"),
+
 
     path('admin/', admin.site.urls),
     path('', views.login_view, name='root'),

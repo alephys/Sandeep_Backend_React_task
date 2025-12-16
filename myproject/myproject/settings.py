@@ -50,13 +50,31 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# Allow specific frontend origins
+# CORS_ALLOWED_ORIGINS = [
+#     "http://10.1.14.203",
+#     # "http://10.1.14.203:5173",
+#     # "http://localhost:5173",
+#     # "http://127.0.0.1:5173",
+# ]
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://10.1.14.203",
 ]
+
+# Allow credentials (cookies / sessions)
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOWED_ORIGIN_REGEXES = [r"^https?://(127\.0\.0\.1|localhost):5173$"]
-CORS_ALLOW_HEADERS = ['content-type', 'authorization', 'x-csrftoken']
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    # r"^https?://(10\.1\.14\.203|localhost):5173$,
+    r"^https?://(127\.0\.0\.1|localhost):5173$",
+]
+
+# Optional (for development convenience)
+CORS_ALLOW_HEADERS = [
+    'content-type',
+    'authorization',
+    'x-csrftoken',
+]
 
 ROOT_URLCONF = 'myproject.urls'
 
